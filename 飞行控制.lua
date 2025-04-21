@@ -62,26 +62,6 @@ Button.Position = UDim2.new(1, 0, 1, 0)
 Button.Size = UDim2.new(0, 120, 0, 50)
 Button.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
 
-Button.MouseButton1Click:Connect(function()
-    Enable = not Enable
-    if Enable then
-        Button.Text = "飞行脚本:开"
-        Button.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
-    else
-        Button.Text = "飞行脚本:关"
-        Button.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
-        flying = false
-        if bodyGyro then pcall(function() bodyGyro:Destroy() end) bodyGyro = nil end
-        if bodyVel then pcall(function() bodyVel:Destroy() end) bodyVel = nil end
-        currentRoot = nil
-        currentMode = "none"
-        local char = LocalPlayer.Character
-        if char and char:FindFirstChild("Humanoid") then
-            char.Humanoid.PlatformStand = false
-        end
-    end
-end)
-
 -- 方向与状态变量
 local flying = false
 local bodyGyro, bodyVel
@@ -97,7 +77,6 @@ local keyMap = {
     [Enum.KeyCode.D] = Vector3.new(1,0,0),
 }
 
--- 玩家/载具双模式
 local function getFlyRoot()
     local char = LocalPlayer.Character
     if char and char:FindFirstChild("Humanoid") then
@@ -140,6 +119,8 @@ local function stopFly()
     if bodyVel then pcall(function() bodyVel:Destroy() end) bodyVel = nil end
     currentRoot = nil
     currentMode = "none"
+    moveDir = Vector3.new(0,0,0)
+    boosting = false
     local char = LocalPlayer.Character
     if char and char:FindFirstChild("Humanoid") then
         char.Humanoid.PlatformStand = false
@@ -156,10 +137,10 @@ end
 
 local function startFly()
     if flying then return end
+    recomputeDir()  -- 每次飞行启动都同步所有按键
     local root, mode = getFlyRoot()
     if not root or mode == "none" then return end
     flying = true
-    recomputeDir()
     currentRoot = root
     currentMode = mode
     local char = LocalPlayer.Character
@@ -182,6 +163,21 @@ local function startFly()
     bodyVel.Parent = root
 end
 
+Button.MouseButton1Click:Connect(function()
+    Enable = not Enable
+    if Enable then
+        Button.Text = "飞行脚本:开"
+        Button.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
+        moveDir = Vector3.new(0,0,0)
+        boosting = false
+        recomputeDir()
+    else
+        Button.Text = "飞行脚本:关"
+        Button.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+        stopFly()
+    end
+end)
+
 UserInputService.InputBegan:Connect(function(input, processed)
     if processed or UserInputService:GetFocusedTextBox() then return end
     if input.KeyCode == Enum.KeyCode.F and Enable then
@@ -199,11 +195,9 @@ UserInputService.InputEnded:Connect(function(input, processed)
     updateMoveDir(input.KeyCode, false)
 end)
 
--- 实时飞行与模式切换
-local flyConn
-flyConn = RunService.RenderStepped:Connect(function()
+-- 主循环常驻，不会因主开关关闭而断开
+RunService.RenderStepped:Connect(function()
     if not Enable then
-        if flyConn then flyConn:Disconnect() flyConn = nil end
         stopFly()
         return
     end
@@ -213,7 +207,6 @@ flyConn = RunService.RenderStepped:Connect(function()
     if flying then
         local root, mode = getFlyRoot()
         if root ~= currentRoot or mode ~= currentMode then
-            -- 切换模式（如跳下座位/上座位）
             if bodyGyro then pcall(function() bodyGyro:Destroy() end) bodyGyro = nil end
             if bodyVel then pcall(function() bodyVel:Destroy() end) bodyVel = nil end
             if root and mode ~= "none" then
@@ -243,7 +236,7 @@ flyConn = RunService.RenderStepped:Connect(function()
         end
     end
 
-    -- 实时检测所有方向键和升降键
+    -- 每帧都检测所有方向键和升降键
     moveDir = Vector3.new(0,0,0)
     for key, vec in pairs(keyMap) do
         if UserInputService:IsKeyDown(key) then
